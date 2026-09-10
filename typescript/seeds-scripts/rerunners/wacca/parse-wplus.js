@@ -3,25 +3,32 @@ import fs from "fs";
 
 import {
 	CreateChartID,
+	CreateSongID,
 	GetFreshSongIDGenerator,
 	MutateCollection,
 	ReadCollection,
 } from "../../util.js";
 
-const getNewSongID = GetFreshSongIDGenerator("wacca");
+function randomHex(bytes) {
+	const buf = new Uint8Array(bytes);
+	globalThis.crypto.getRandomValues(buf);
+	return Array.from(buf, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+const getNewLegacySongID = GetFreshSongIDGenerator("wacca");
 const waccaDiffIndex = ["NORMAL", "HARD", "EXPERT", "INFERNO"];
 
 const program = new Command();
 program
-	.option("-d, --data <path of json from webui>")
+	.option("-d, --data <path of js from webui>")
 	.option("-t, --timeframe <date from where to start parsing>"); // don't use this unless you know what you're doing
 program.parse(process.argv);
 const options = program.opts();
 
 if (!options.data) {
-	throw new Error("JSON from the webui is required.");
+	throw new Error("JS from the webui is required.");
 }
-let songdata = JSON.parse(fs.readFileSync(options.data).toString());
+let songdata = require(options.data).default;
 
 if (options.timeframe) {
 	const timeframe = Date.parse(options.timeframe);
@@ -35,7 +42,7 @@ const existingChartDocs = ReadCollection("charts-wacca.json");
 const inGameIDToSongIDMap = new Map();
 
 for (const chart of existingChartDocs) {
-	inGameIDToSongIDMap.set(chart.data.inGameID, chart.song.id);
+	inGameIDToSongIDMap.set(chart.data.inGameID, chart.songID);
 }
 
 for (const song of songdata) {
@@ -49,7 +56,8 @@ for (const song of songdata) {
 				displayVersion: "plus",
 				genre: song.category,
 			},
-			id: getNewSongID(),
+			id: CreateSongID(),
+			legacySongID: getNewLegacySongID(),
 			searchTerms: [],
 			title: song.title,
 		};
@@ -57,7 +65,8 @@ for (const song of songdata) {
 		for (const chart of song.sheets) {
 			const isPlus = (chart.difficulty * 10) % 10 >= 7;
 			const chartDoc = {
-				chartID: CreateChartID(),
+				id: CreateChartID(),
+				legacyChartID: randomHex(20),
 				data: {
 					inGameID: song.id,
 				},
@@ -65,7 +74,6 @@ for (const song of songdata) {
 				isPrimary: true,
 				level: `${Math.trunc(chart.difficulty)}${isPlus ? "+" : ""}`,
 				levelNum: chart.difficulty,
-				playtype: "Single",
 				songID: songDoc.id,
 				versions: ["plus"],
 			};
@@ -85,7 +93,8 @@ for (const song of songdata) {
 					);
 					const isPlus = (chart.difficulty * 10) % 10 >= 7;
 					newCharts.push({
-						chartID: CreateChartID(),
+						id: CreateChartID(),
+						legacyChartID: randomHex(20),
 						data: {
 							inGameID: song.id,
 						},
@@ -93,7 +102,6 @@ for (const song of songdata) {
 						isPrimary: true,
 						level: `${Math.trunc(chart.difficulty)}${isPlus ? "+" : ""}`,
 						levelNum: chart.difficulty,
-						playtype: "Single",
 						songID: chartsForSong[0].songID,
 						versions: ["plus"],
 					});
@@ -123,7 +131,7 @@ MutateCollection("charts-wacca.json", (charts) => {
 						existing.difficulty === waccaDiffIndex[diffIndex],
 				);
 				for (const chart of charts) {
-					if (chart.chartID === oldChart.chartID) {
+					if (chart.id === oldChart.id) {
 						console.log(`Changing from ${chart.levelNum} to ${newChart.difficulty}`);
 						chart.level = `${Math.trunc(newChart.difficulty)}${isPlus ? "+" : ""}`;
 						chart.levelNum = newChart.difficulty;
